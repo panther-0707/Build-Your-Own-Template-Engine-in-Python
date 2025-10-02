@@ -6,9 +6,11 @@ import re
 try:
     from .codebuilder import CodeBuilder
     from .exceptions import TempliteSyntaxError
+    from .expression_parser import ExpressionParser
 except ImportError:
     from codebuilder import CodeBuilder
     from exceptions import TempliteSyntaxError
+    from expression_parser import ExpressionParser
 
 
 class Templite:
@@ -41,6 +43,7 @@ class Templite:
 
         self.all_vars = set()
         self.loop_vars = set()
+        self.last_for = ""
 
         code = CodeBuilder()
 
@@ -83,25 +86,63 @@ class Templite:
 
                 if words[0] == 'if':
                     # An if statement: evaluate the expression to determine if.
-                    if len(words) != 2:
-                        self._syntax_error("Don't understand if", token)
+                    if len(words) < 2:
+                        self._syntax_error("If has no expression", token)
                     ops_stack.append('if')
-                    code.add_line("if %s:" % self._expr_code(words[1]))
+                    expr = " ".join(words[1:])
+                    code.add_line("if %s:" % self._expr_code(expr))
+                    code.indent()
+
+                elif words[0] == 'elif':
+                    if not ops_stack or ops_stack[-1] != 'if':
+                        self._syntax_error("Mismatched elif", token)
+                    if len(words) < 2:
+                        self._syntax_error("Elif has no expression", token)
+                    code.dedent()
+                    expr = " ".join(words[1:])
+                    code.add_line("elif %s:" % self._expr_code(expr))
+                    code.indent()
+
+                elif words[0] == 'else':
+                    if not ops_stack or ops_stack[-1] != 'if':
+                        self._syntax_error("Mismatched else", token)
+                    code.dedent()
+                    code.add_line("else:")
                     code.indent()
 
                 elif words[0] == 'for':
                     # A loop: iterate over expression result.
-                    if len(words) != 4 or words[2] != 'in':
+                    if len(words) < 4 or words[2] != 'in':
                         self._syntax_error("Don't understand for", token)
+
                     ops_stack.append('for')
                     self._variable(words[1], self.loop_vars)
-                    code.add_line(
-                        "for c_%s in %s:" % (
-                            words[1],
-                            self._expr_code(words[3])
+                    self.last_for = " ".join(words)
+
+                    # Check for conditional loop
+                    if 'if' in words:
+                        if_pos = words.index('if')
+                        expr = " ".join(words[3:if_pos])
+                        cond_expr = " ".join(words[if_pos+1:])
+
+                        code.add_line(
+                            "for c_%s in %s:" % (
+                                words[1],
+                                self._expr_code(expr)
+                            )
                         )
-                    )
-                    code.indent()
+                        code.indent()
+                        code.add_line("if %s:" % self._expr_code(cond_expr))
+                        code.indent()
+                    else:
+                        expr = " ".join(words[3:])
+                        code.add_line(
+                            "for c_%s in %s:" % (
+                                words[1],
+                                self._expr_code(expr)
+                            )
+                        )
+                        code.indent()
 
                 elif words[0].startswith('end'):
                     # Endsomething.  Pop the ops stack.
@@ -110,10 +151,17 @@ class Templite:
                     end_what = words[0][3:]
                     if not ops_stack:
                         self._syntax_error("Too many ends", token)
+
                     start_what = ops_stack.pop()
                     if start_what != end_what:
                         self._syntax_error("Mismatched end tag", end_what)
-                    code.dedent()
+
+                    # Check if we are ending a conditional for loop
+                    if start_what == 'for' and 'if' in self.last_for:
+                        code.dedent()
+                        code.dedent()
+                    else:
+                        code.dedent()
 
                 else:
                     self._syntax_error("Don't understand tag", words[0])
@@ -138,24 +186,8 @@ class Templite:
 
     def _expr_code(self, expr):
         """Generate a Python expression for `expr`."""
-        if "|" in expr:
-            pipes = expr.split("|")
-            code = self._expr_code(pipes[0])
-            for func in pipes[1:]:
-                self._variable(func, self.all_vars)
-                code = "c_%s(%s)" % (func, code)
-
-        elif "." in expr:
-            dots = expr.split(".")
-            code = self._expr_code(dots[0])
-            args = ", ".join(repr(d) for d in dots[1:])
-            code = "do_dots(%s, %s)" % (code, args)
-
-        else:
-            self._variable(expr, self.all_vars)
-            code = "c_%s" % expr
-
-        return code
+        parser = ExpressionParser(expr, self)
+        return parser.parse()
 
     def _syntax_error(self, msg, thing):
         """Raise a syntax error using `msg`, and showing `thing`."""
