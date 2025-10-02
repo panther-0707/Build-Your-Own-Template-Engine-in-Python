@@ -367,6 +367,103 @@ class TestTemplite(unittest.TestCase):
         with self.assertRaises(KeyError):
             t.render({'obj': {}})
 
+    # New tests for Challenge #2
+
+    def test_arithmetic_expressions(self):
+        """Test arithmetic expressions."""
+        t = Templite("{{ 5 + 3 }}")
+        self.assertEqual(t.render(), "8")
+        t = Templite("{{ 5 - 3 }}")
+        self.assertEqual(t.render(), "2")
+        t = Templite("{{ 5 * 3 }}")
+        self.assertEqual(t.render(), "15")
+        t = Templite("{{ 15 / 3 }}")
+        self.assertEqual(t.render(), "5.0")
+        t = Templite("{{ 15 % 4 }}")
+        self.assertEqual(t.render(), "3")
+
+    def test_operator_precedence(self):
+        """Test operator precedence."""
+        t = Templite("{{ 5 + 3 * 2 }}")
+        self.assertEqual(t.render(), "11")
+        t = Templite("{{ (5 + 3) * 2 }}")
+        self.assertEqual(t.render(), "16")
+
+    def test_comparison_operators(self):
+        """Test comparison operators."""
+        t = Templite("{% if 5 > 3 %}yes{% endif %}")
+        self.assertEqual(t.render(), "yes")
+        t = Templite("{% if 3 >= 3 %}yes{% endif %}")
+        self.assertEqual(t.render(), "yes")
+        t = Templite("{% if 3 < 5 %}yes{% endif %}")
+        self.assertEqual(t.render(), "yes")
+        t = Templite("{% if 5 <= 5 %}yes{% endif %}")
+        self.assertEqual(t.render(), "yes")
+        t = Templite("{% if 5 == 5 %}yes{% endif %}")
+        self.assertEqual(t.render(), "yes")
+        t = Templite("{% if 5 != 3 %}yes{% endif %}")
+        self.assertEqual(t.render(), "yes")
+
+    def test_logical_operators(self):
+        """Test logical operators."""
+        t = Templite("{% if 5 > 3 and 3 < 5 %}yes{% endif %}")
+        self.assertEqual(t.render(), "yes")
+        t = Templite("{% if 5 > 3 or 3 > 5 %}yes{% endif %}")
+        self.assertEqual(t.render(), "yes")
+        t = Templite("{% if not (3 > 5) %}yes{% endif %}")
+        self.assertEqual(t.render(), "yes")
+
+    def test_complex_expression_with_variables(self):
+        """Test complex expressions with variables."""
+        t = Templite("{{ (user.score * 1.5 + bonus) | round_it }}")
+        def round_it(n):
+            return round(n)
+        context = {
+            'user': {'score': 10},
+            'bonus': 5,
+            'round_it': round_it,
+        }
+        self.assertEqual(t.render(context), "20")
+
+    def test_elif_and_else(self):
+        """Test elif and else tags."""
+        template = """
+        {% if x > 10 %}
+            greater than 10
+        {% elif x > 5 %}
+            greater than 5
+        {% else %}
+            5 or less
+        {% endif %}
+        """
+        t = Templite(template)
+        self.assertIn("greater than 10", t.render({'x': 11}))
+        self.assertIn("greater than 5", t.render({'x': 6}))
+        self.assertIn("5 or less", t.render({'x': 5}))
+
+    def test_conditional_for_loop(self):
+        """Test for loop with a conditional."""
+        template = "{% for item in items if item > 2 %}{{ item }}{% endfor %}"
+        t = Templite(template)
+        context = {'items': [1, 2, 3, 4, 5]}
+        self.assertEqual(t.render(context), "345")
+
+    def test_conditional_for_loop_with_objects(self):
+        """Test conditional for loop with object attributes."""
+        class Product:
+            def __init__(self, name, price):
+                self.name = name
+                self.price = price
+
+        template = "{% for p in products if p.price < 100 %}{{ p.name }} {% endfor %}"
+        t = Templite(template)
+        products = [
+            Product("cheap", 50),
+            Product("expensive", 150),
+            Product("affordable", 99),
+        ]
+        context = {'products': products}
+        self.assertEqual(t.render(context), "cheap affordable ")
 
 if __name__ == '__main__':
     unittest.main()
